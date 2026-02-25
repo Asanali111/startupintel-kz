@@ -14,11 +14,23 @@ from playwright.async_api import async_playwright
 
 from src.history import load_history, mark_seen, save_history
 from src.llm_filter import filter_articles_batch
-from src.scrapers.base import Article
+from src.scrapers.base import Article, BaseScraper
 from src.scrapers.digitalbusiness import DigitalBusinessScraper
 from src.scrapers.er10 import Er10Scraper
 from src.scrapers.the_tech_kz import TheTechKZScraper
 from src.telegram_notifier import notify_telegram
+
+# ── Scraper Registry ─────────────────────────────────────────────────────────
+# To add a new source:  1) create src/scrapers/my_source.py
+#                        2) import it above
+#                        3) add the class to this list ↓
+
+SCRAPER_CLASSES: list[type[BaseScraper]] = [
+    DigitalBusinessScraper,
+    Er10Scraper,
+    TheTechKZScraper,
+    # ← add new scrapers here (one line each)
+]
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -43,11 +55,7 @@ async def pipeline() -> None:
     logger.info("Loaded history: %d previously seen URLs.", len(seen_urls))
 
     # 2. Run Scrapers (gather) ────────────────────────────────────────────
-    scrapers = [
-        DigitalBusinessScraper(seen_urls),
-        Er10Scraper(seen_urls),
-        TheTechKZScraper(seen_urls),
-    ]
+    scrapers = [cls(seen_urls) for cls in SCRAPER_CLASSES]
 
     all_new_articles: list[Article] = []
 
