@@ -1,0 +1,49 @@
+name: StartupIntel_KZ Daily Scraper
+
+on:
+  schedule:
+    # 09:00 Astana time (UTC+5) = 04:00 UTC
+    - cron: "0 4 * * *"
+  workflow_dispatch:           # Allow manual trigger from GitHub UI
+
+permissions:
+  contents: write              # Needed to commit history.json back
+
+jobs:
+  scrape-filter-notify:
+    runs-on: ubuntu-latest
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+    steps:
+      # ── Checkout ───────────────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Python ─────────────────────────────────────────────────────────
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # ── Dependencies ───────────────────────────────────────────────────
+      - name: Install Python packages
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright Chromium
+        run: playwright install --with-deps chromium
+
+      # ── Run Pipeline ───────────────────────────────────────────────────
+      - name: Run StartupIntel_KZ pipeline
+        run: python -m src.main
+
+      # ── Persist State ──────────────────────────────────────────────────
+      - name: Commit updated history.json
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: update history.json [skip ci]"
+          file_pattern: "data/history.json"
