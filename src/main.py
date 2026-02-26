@@ -18,7 +18,7 @@ from src.scrapers.base import Article, BaseScraper
 from src.scrapers.digitalbusiness import DigitalBusinessScraper
 from src.scrapers.er10 import Er10Scraper
 from src.scrapers.the_tech_kz import TheTechKZScraper
-from src.telegram_notifier import notify_telegram
+from src.telegram_notifier import notify_telegram, send_status_report
 
 # ── Scraper Registry ─────────────────────────────────────────────────────────
 # To add a new source:  1) create src/scrapers/my_source.py
@@ -74,24 +74,31 @@ async def pipeline() -> None:
 
     logger.info("Scrapers returned %d new articles total.", len(all_new_articles))
 
-    if not all_new_articles:
-        logger.info("Nothing new — exiting early.")
-        save_history(history)
-        return
-
     # 3. Filter via LLM ──────────────────────────────────────────────────
-    approved = await filter_articles_batch(all_new_articles)
+    approved: list[dict] = []
+    sent_count = 0
 
-    # Build a lookup so the notifier can resolve article metadata by ID
-    articles_by_id: dict[str, Article] = {a.id: a for a in all_new_articles}
+    if all_new_articles:
+        approved = await filter_articles_batch(all_new_articles)
 
-    # 4. Notify via Telegram ─────────────────────────────────────────────
-    sent_count = await notify_telegram(approved, articles_by_id)
-    logger.info("Telegram: %d messages delivered.", sent_count)
+        # Build a lookup so the notifier can resolve article metadata by ID
+        articles_by_id: dict[str, Article] = {a.id: a for a in all_new_articles}
 
-    # 5. Save History (mark ALL scraped URLs, not just approved ones) ────
-    new_urls = [a.url for a in all_new_articles]
-    mark_seen(new_urls, history)
+        # 4. Notify via Telegram ─────────────────────────────────────────
+        sent_count = await notify_telegram(approved, articles_by_id)
+        logger.info("Telegram: %d messages delivered.", sent_count)
+
+    # 5. Always send a status report ─────────────────────────────────────
+    await send_status_report(
+        total_scraped=len(all_new_articles),
+        total_approved=len(approved),
+        total_sent=sent_count,
+    )
+
+    # 6. Save History (mark ALL scraped URLs, not just approved ones) ────
+    if all_new_articles:
+        new_urls = [a.url for a in all_new_articles]
+        mark_seen(new_urls, history)
     save_history(history)
 
     logger.info(

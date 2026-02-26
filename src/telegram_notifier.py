@@ -109,3 +109,48 @@ async def notify_telegram(
 
     logger.info("Telegram delivery complete: %d/%d sent.", sent, len(approved))
     return sent
+
+
+async def send_status_report(
+    total_scraped: int,
+    total_approved: int,
+    total_sent: int,
+) -> None:
+    """
+    Always send a summary message so the user knows the bot ran,
+    even if zero articles were found or approved.
+    """
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        logger.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set.")
+        return
+
+    if total_scraped == 0:
+        status = "😴 No new articles found today."
+    elif total_approved == 0:
+        status = (
+            f"🔍 Scanned {total_scraped} new article(s), "
+            f"but none scored high enough. Better luck tomorrow!"
+        )
+    else:
+        status = (
+            f"✅ Scanned {total_scraped} article(s), "
+            f"approved {total_approved}, sent {total_sent} to you above."
+        )
+
+    text = f"📊 StartupIntel_KZ — Daily Report\n\n{status}"
+
+    send_url = f"{TELEGRAM_API_URL}/sendMessage"
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.post(send_url, json={
+                "chat_id": TELEGRAM_CHAT_ID,
+                "text": text,
+            }) as resp:
+                if resp.status == 200:
+                    logger.info("Status report sent to Telegram.")
+                else:
+                    body = await resp.text()
+                    logger.error("Telegram status report error %d: %s", resp.status, body)
+        except aiohttp.ClientError as exc:
+            logger.error("Network error sending status report: %s", exc)
+
