@@ -83,3 +83,43 @@ class BaseScraper(abc.ABC):
     async def _scrape_page(self, page: Page) -> list[Article]:
         """Subclasses extract Article objects from the loaded page."""
         ...
+
+
+# ── HTTP-only Base Scraper (no browser) ──────────────────────────────────────
+
+class BaseHTTPScraper(abc.ABC):
+    """
+    Lightweight async scraper that uses ``aiohttp`` instead of Playwright.
+    Ideal for RSS feeds and public JSON APIs.
+    """
+
+    SOURCE_NAME: str = "unknown"
+
+    def __init__(self, seen_urls: set[str]) -> None:
+        self._seen_urls = seen_urls
+
+    async def run(self, browser: Browser) -> list[Article]:
+        """
+        Fetch articles over HTTP (ignores `browser`), then deduplicate.
+        Signature matches ``BaseScraper.run`` so the pipeline treats all
+        scrapers identically.
+        """
+        try:
+            raw_articles = await self._fetch_articles()
+        except Exception as exc:
+            logger.error("[%s] Fetch failed: %s", self.SOURCE_NAME, exc)
+            return []
+
+        new_articles = [a for a in raw_articles if a.url not in self._seen_urls]
+        logger.info(
+            "[%s] Fetched %d articles (%d new).",
+            self.SOURCE_NAME,
+            len(raw_articles),
+            len(new_articles),
+        )
+        return new_articles
+
+    @abc.abstractmethod
+    async def _fetch_articles(self) -> list[Article]:
+        """Subclasses fetch and parse articles over HTTP."""
+        ...

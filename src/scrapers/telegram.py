@@ -1,13 +1,13 @@
 """
-Scraper for t.me/s/the_tech_kz — Telegram public web-view DOM.
+Generic Telegram channel scraper — works for any public channel.
 
-The ``/s/`` path exposes messages as static HTML widgets, avoiding
-the need for Telegram API credentials.
+Uses the ``/s/<channel>`` web-preview endpoint so no API credentials
+are needed.
 
 Key selectors (Telegram widget DOM):
   • Message bubble:  ``.tgme_widget_message``
   • Post text:       ``.tgme_widget_message_text``
-  • Post link attr:  ``data-post``  → value like ``the_tech_kz/1234``
+  • Post link attr:  ``data-post``  → value like ``channel_name/1234``
 """
 
 from __future__ import annotations
@@ -25,9 +25,20 @@ logger = logging.getLogger(__name__)
 TELEGRAM_BASE = "https://t.me"
 
 
-class TheTechKZScraper(BaseScraper):
-    SOURCE_NAME = "the_tech_kz"
-    TARGET_URL = "https://t.me/s/the_tech_kz"
+class TelegramChannelScraper(BaseScraper):
+    """
+    Scrape the latest posts from any public Telegram channel.
+
+    Usage::
+
+        scraper = TelegramChannelScraper("the_tech_kz", seen_urls)
+    """
+
+    def __init__(self, channel: str, seen_urls: set[str]) -> None:
+        super().__init__(seen_urls)
+        self._channel = channel
+        self.SOURCE_NAME = f"tg/{channel}"
+        self.TARGET_URL = f"{TELEGRAM_BASE}/s/{channel}"
 
     async def _scrape_page(self, page: Page) -> list[Article]:
         articles: list[Article] = []
@@ -35,7 +46,6 @@ class TheTechKZScraper(BaseScraper):
         # Wait for Telegram widget messages to render
         await page.wait_for_selector(".tgme_widget_message", timeout=20_000)
 
-        # Grab all message bubbles
         messages = await page.query_selector_all(".tgme_widget_message")
 
         for msg in messages:
@@ -44,7 +54,6 @@ class TheTechKZScraper(BaseScraper):
             if not data_post:
                 continue
 
-            # Build canonical URL  →  https://t.me/the_tech_kz/1234
             post_url = f"{TELEGRAM_BASE}/{data_post}"
 
             # ── Extract message text ─────────────────────────────────────
@@ -61,7 +70,9 @@ class TheTechKZScraper(BaseScraper):
             title = first_line[:120] if first_line else full_text[:120]
 
             # ── Date (best-effort) ───────────────────────────────────────
-            date_el = await msg.query_selector("time.datetime, .tgme_widget_message_date time")
+            date_el = await msg.query_selector(
+                "time.datetime, .tgme_widget_message_date time"
+            )
             published = ""
             if date_el:
                 published = (

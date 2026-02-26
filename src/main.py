@@ -1,7 +1,7 @@
 """
 StartupIntel_KZ — main orchestrator.
 
-Pipeline:  Load History → Run Scrapers (gather) → Filter (LLM) → Notify → Save History
+Pipeline:  Load History → Run Scrapers (gather) → Analyse (LLM) → Notify → Save History
 """
 
 from __future__ import annotations
@@ -13,24 +13,34 @@ import sys
 from playwright.async_api import async_playwright
 
 from src.history import load_history, mark_seen, save_history
-from src.llm_filter import filter_articles_batch
-from src.scrapers.base import Article, BaseScraper
+from src.llm_filter import analyse_articles_batch
+from src.scrapers.base import Article
 from src.scrapers.digitalbusiness import DigitalBusinessScraper
 from src.scrapers.er10 import Er10Scraper
-from src.scrapers.the_tech_kz import TheTechKZScraper
+from src.scrapers.hackernews import HackerNewsScraper
+from src.scrapers.opentools import OpenToolsScraper
+from src.scrapers.rss import RSSFeedScraper
+from src.scrapers.telegram import TelegramChannelScraper
 from src.telegram_notifier import notify_telegram, send_status_report
 
-# ── Scraper Registry ─────────────────────────────────────────────────────────
-# To add a new source:  1) create src/scrapers/my_source.py
-#                        2) import it above
-#                        3) add the class to this list ↓
-
-SCRAPER_CLASSES: list[type[BaseScraper]] = [
-    DigitalBusinessScraper,
-    Er10Scraper,
-    TheTechKZScraper,
-    # ← add new scrapers here (one line each)
+# ── Telegram Channels ────────────────────────────────────────────────────────
+TELEGRAM_CHANNELS = [
+    "the_tech_kz",
+    "digitalkazakhstan",
+    "astanahub",
+    "forbeskazakhstan",
+    "therundownai",
+    "tldrtech",
 ]
+
+# ── RSS Feeds ────────────────────────────────────────────────────────────────
+RSS_FEEDS = {
+    "astanatimes":   "https://astanatimes.com/feed/",
+    "producthunt":   "https://www.producthunt.com/feed",
+    "openai_blog":   "https://openai.com/blog/rss.xml",
+    "hf_blog":       "https://huggingface.co/blog/feed.xml",
+}
+
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -55,7 +65,20 @@ async def pipeline() -> None:
     logger.info("Loaded history: %d previously seen URLs.", len(seen_urls))
 
     # 2. Run Scrapers (gather) ────────────────────────────────────────────
-    scrapers = [cls(seen_urls) for cls in SCRAPER_CLASSES]
+    # Build scraper instances from the registries
+    scrapers = []
+    # Telegram channels
+    for channel in TELEGRAM_CHANNELS:
+        scrapers.append(TelegramChannelScraper(channel, seen_urls))
+    # RSS feeds
+    for name, url in RSS_FEEDS.items():
+        scrapers.append(RSSFeedScraper(name, url, seen_urls))
+    # HTML scrapers (Playwright-based)
+    scrapers.append(DigitalBusinessScraper(seen_urls))
+    scrapers.append(Er10Scraper(seen_urls))
+    scrapers.append(OpenToolsScraper(seen_urls))
+    # API scrapers (HTTP-based)
+    scrapers.append(HackerNewsScraper(seen_urls))
 
     all_new_articles: list[Article] = []
 
@@ -74,24 +97,24 @@ async def pipeline() -> None:
 
     logger.info("Scrapers returned %d new articles total.", len(all_new_articles))
 
-    # 3. Filter via LLM ──────────────────────────────────────────────────
-    approved: list[dict] = []
+    # 3. Analyse via LLM ─────────────────────────────────────────────────
+    analysed: list[dict] = []
     sent_count = 0
 
     if all_new_articles:
-        approved = await filter_articles_batch(all_new_articles)
+        analysed = await analyse_articles_batch(all_new_articles)
 
         # Build a lookup so the notifier can resolve article metadata by ID
         articles_by_id: dict[str, Article] = {a.id: a for a in all_new_articles}
 
         # 4. Notify via Telegram ─────────────────────────────────────────
-        sent_count = await notify_telegram(approved, articles_by_id)
+        sent_count = await notify_telegram(analysed, articles_by_id)
         logger.info("Telegram: %d messages delivered.", sent_count)
 
     # 5. Always send a status report ─────────────────────────────────────
     await send_status_report(
         total_scraped=len(all_new_articles),
-        total_approved=len(approved),
+        total_analysed=len(analysed),
         total_sent=sent_count,
     )
 
@@ -102,9 +125,9 @@ async def pipeline() -> None:
     save_history(history)
 
     logger.info(
-        "═══ Pipeline complete — %d scraped, %d approved, %d sent ═══",
+        "═══ Pipeline complete — %d scraped, %d analysed, %d sent ═══",
         len(all_new_articles),
-        len(approved),
+        len(analysed),
         sent_count,
     )
 

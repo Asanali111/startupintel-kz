@@ -17,7 +17,6 @@ from src.config import (
     CONTENT_TRUNCATE_CHARS,
     GEMINI_API_KEY,
     GEMINI_MODEL,
-    RELEVANCE_THRESHOLD,
 )
 
 if TYPE_CHECKING:
@@ -28,33 +27,18 @@ logger = logging.getLogger(__name__)
 # ── System Prompt ────────────────────────────────────────────────────────────
 
 SYSTEM_PROMPT = """\
-You are an expert startup ecosystem analyst determining article relevance \
+You are an expert startup ecosystem analyst summarising articles \
 for an 11th-grade NIS student (Physics/Math FMN) in Kazakhstan who is \
 passionate about ENTREPRENEURSHIP and building startups.
-Evaluate each article in the batch and score it from 0 to 10 based on relevance.
+Analyse each article in the batch and provide a concise summary.
 
-HIGH PRIORITY — ACCEPT (Score 8-10):
-• Startup launches, funding rounds, accelerator programs in Kazakhstan/Central Asia
-• Entrepreneurship tips, founder stories, venture capital news
-• Student grants, startup competitions, hackathons, business olympiads
-• Astana Hub, Tech Garden, MOST, and other KZ ecosystem players
-
-MEDIUM PRIORITY — ACCEPT (Score 7):
-• AI/Deep Tech breakthroughs, robotics, hardware engineering
-• Government tech policy affecting startups (tax breaks, regulations)
-• International startup news directly relevant to KZ market
-
-REJECT (Score 0-6):
-• Generic crypto pumps, NFT speculation
-• Pure marketing fluff, PR announcements with no substance
-• Retail banking products, consumer finance
-• Celebrity news, lifestyle, entertainment
+For every article, write a clear 1-sentence summary explaining why it \
+might matter to a student entrepreneur in Kazakhstan.
 
 Respond EXCLUSIVELY with a JSON array matching this schema:
 [
   {
     "id": "article_id",
-    "score": 8,
     "summary": "1-sentence summary of why this matters for a student entrepreneur."
   }
 ]
@@ -63,14 +47,13 @@ Respond EXCLUSIVELY with a JSON array matching this schema:
 
 # ── Public API ───────────────────────────────────────────────────────────────
 
-async def filter_articles_batch(
+async def analyse_articles_batch(
     articles: list[Article],
 ) -> list[dict]:
     """
     Send a batched payload of newly scraped articles to Gemini 1.5 Flash.
 
-    Returns a list of dicts ``{"id", "score", "summary"}`` for articles
-    that scored ≥ ``RELEVANCE_THRESHOLD``.
+    Returns a list of dicts ``{"id", "summary"}`` for every article.
     """
     if not articles:
         logger.info("No articles to filter — skipping LLM call.")
@@ -119,16 +102,5 @@ async def filter_articles_batch(
         logger.debug("Raw response text: %s", response.text)
         return []
 
-    # ── Filter by threshold ──────────────────────────────────────────────
-    approved = [
-        item for item in evaluated
-        if isinstance(item, dict) and item.get("score", 0) >= RELEVANCE_THRESHOLD
-    ]
-
-    logger.info(
-        "LLM scored %d articles → %d approved (threshold=%d).",
-        len(evaluated),
-        len(approved),
-        RELEVANCE_THRESHOLD,
-    )
-    return approved
+    logger.info("LLM analysed %d articles — all will be sent.", len(evaluated))
+    return evaluated

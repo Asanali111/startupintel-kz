@@ -2,3 +2,4 @@ playwright
 google-generativeai
 aiohttp
 pydantic
+feedparser

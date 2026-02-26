@@ -23,16 +23,16 @@ logger = logging.getLogger(__name__)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
-def _format_message(article: Article, score: int, summary: str) -> str:
+def _format_message(article: Article, summary: str) -> str:
     """
     Build the Telegram message string.
 
-    Format:  [Score] Title
+    Format:  Title
              Summary
              URL
     """
     return (
-        f"[{score}] {article.title}\n"
+        f"{article.title}\n"
         f"{summary}\n"
         f"{article.url}"
     )
@@ -81,7 +81,6 @@ async def notify_telegram(
 
             text = _format_message(
                 article,
-                score=item.get("score", 0),
                 summary=item.get("summary", ""),
             )
 
@@ -113,12 +112,12 @@ async def notify_telegram(
 
 async def send_status_report(
     total_scraped: int,
-    total_approved: int,
+    total_analysed: int,
     total_sent: int,
 ) -> None:
     """
     Always send a summary message so the user knows the bot ran,
-    even if zero articles were found or approved.
+    even if zero articles were found.
     """
     if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
         logger.error("TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is not set.")
@@ -126,15 +125,10 @@ async def send_status_report(
 
     if total_scraped == 0:
         status = "😴 No new articles found today."
-    elif total_approved == 0:
-        status = (
-            f"🔍 Scanned {total_scraped} new article(s), "
-            f"but none scored high enough. Better luck tomorrow!"
-        )
     else:
         status = (
             f"✅ Scanned {total_scraped} article(s), "
-            f"approved {total_approved}, sent {total_sent} to you above."
+            f"analysed {total_analysed}, sent {total_sent} to Telegram."
         )
 
     text = f"📊 StartupIntel_KZ — Daily Report\n\n{status}"
