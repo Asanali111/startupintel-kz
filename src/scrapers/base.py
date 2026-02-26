@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+MAX_ARTICLES_PER_SOURCE = 5  # Cap per source to keep LLM costs low
+
 
 # ── Data Model ───────────────────────────────────────────────────────────────
 
@@ -67,15 +69,17 @@ class BaseScraper(abc.ABC):
         finally:
             await page.close()
 
-        # De-duplicate against history
+        # De-duplicate against history and cap
         new_articles = [a for a in raw_articles if a.url not in self._seen_urls]
+        capped = new_articles[:MAX_ARTICLES_PER_SOURCE]
         logger.info(
-            "[%s] Found %d articles (%d new).",
+            "[%s] Found %d articles (%d new, %d after cap).",
             self.SOURCE_NAME,
             len(raw_articles),
             len(new_articles),
+            len(capped),
         )
-        return new_articles
+        return capped
 
     # ── Template method ──────────────────────────────────────────────────
 
@@ -111,13 +115,15 @@ class BaseHTTPScraper(abc.ABC):
             return []
 
         new_articles = [a for a in raw_articles if a.url not in self._seen_urls]
+        capped = new_articles[:MAX_ARTICLES_PER_SOURCE]
         logger.info(
-            "[%s] Fetched %d articles (%d new).",
+            "[%s] Fetched %d articles (%d new, %d after cap).",
             self.SOURCE_NAME,
             len(raw_articles),
             len(new_articles),
+            len(capped),
         )
-        return new_articles
+        return capped
 
     @abc.abstractmethod
     async def _fetch_articles(self) -> list[Article]:
